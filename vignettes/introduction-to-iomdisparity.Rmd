@@ -1,0 +1,155 @@
+---
+title: "Measuring Healthcare Disparities via the IOM Rank-and-Replace Method"
+author: "iomdisparity development team"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Measuring Healthcare Disparities via the IOM Rank-and-Replace Method}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4.5
+)
+```
+
+## Introduction
+
+In health services research, quantifying racial and ethnic disparities in health care requires explicit normative and econometric choices about which differences between population groups are justifiable and which are unjustifiable.
+
+The landmark Institute of Medicine (IOM) report *Unequal Treatment: Confronting Racial and Ethnic Disparities in Health Care* (IOM 2002) defined a health care disparity as:
+
+> A difference in treatment provided to members of different racial or ethnic groups that is not justified by the underlying health conditions or treatment preferences of patients.
+
+Importantly, the IOM definition recognizes that socioeconomic status (SES) differences (such as income, education, and health insurance) often operate as systemic mediators through which racial and ethnic disparities are produced. Therefore, **differences in healthcare use mediated through SES are considered part of the disparity and should not be adjusted away**.
+
+The `iomdisparity` package provides a standardized implementation of the **Rank-and-Replace** method developed by McGuire et al. (2006) and refined by Cook et al. (2010, 2012) to estimate IOM-concordant disparities in generalized linear models (GLMs) and two-part semi-continuous expenditure models.
+
+---
+
+## Comparison of Disparity Definitions
+
+| Method | Definition / Concept | Adjustment Mechanism | Caveats / Limitations |
+| :--- | :--- | :--- | :--- |
+| **Unadjusted Difference** | Simple raw difference in group means | No adjustment | Fails to control for genuine clinical need or age differences. |
+| **Residual Direct Effect (RDE)** | Coefficient on race in a fully adjusted multivariable regression | Controls for need *and* SES | Absorbs SES-mediated disparities into covariates, underestimating the true systemic disparity. |
+| **IOM Rank-and-Replace** | Counterfactual difference after equalizing clinical need distributions | Transforms need distribution while preserving group SES distributions | Accurately isolates allowable clinical differences without muting socioeconomic disadvantage. |
+
+---
+
+## The Rank-and-Replace Algorithm
+
+1. **Initial Model Fitting**: Fit a regression model (GLM or two-part model) relating the outcome $Y$ to clinical need variables ($H$), socioeconomic variables ($S$), and race/ethnicity ($R$):
+   $$g(E[Y \mid H, S, R]) = \beta_0 + \sum_{k \in \text{Need}} \beta_k H_k + \sum_{j \in \text{SES}} \gamma_j S_j + \delta \cdot R$$
+
+2. **Univariate Health Need Index**: Multivariate indicators of clinical need are condensed into a scalar index of need:
+   $$HI_i = \sum_{k \in \text{Need}} \hat{\beta}_k H_{ki}$$
+
+3. **Quantile Mapping**: For each minority individual $j$ with empirical rank percentile $p_j$ in their own group, their health index is replaced by the corresponding percentile value from the reference (white) distribution:
+   $$HI_j^* = Q_{\text{ref}}(p_j)$$
+
+4. **Counterfactual Predictions**: Predicted healthcare use is evaluated for minority individuals using their counterfactual health index $HI_j^*$ while retaining their factual SES characteristics and racial identity.
+
+5. **Disparity Metric**:
+   $$\text{Disparity}_{\text{IOM}} = \bar{\hat{Y}}_{\text{ref}} - \bar{\hat{Y}}_{\text{comp, counterfactual}}$$
+
+---
+
+## Walkthrough: Using `iomdisparity`
+
+First, load the package and inspect the bundled `meps_synthetic` dataset:
+
+```{r setup}
+library(iomdisparity)
+
+data(meps_synthetic)
+head(meps_synthetic)
+```
+
+### 1. Estimating Disparities in Healthcare Access (Binary GLM)
+
+We evaluate disparities in having any mental health care visit (`any_mental_health_use`) between White (reference) and Black (comparison) individuals:
+
+```{r binary_example}
+fit_binary <- iom_disparity(
+  formula = any_mental_health_use ~ age + female + chronic_conditions +
+    sf12_physical + sf12_mental + activity_limitations +
+    income_poverty_ratio + insurance + education + race,
+  data = meps_synthetic,
+  race_col = "race",
+  ref_race = "White",
+  comp_race = "Black",
+  need_vars = c("age", "female", "chronic_conditions", "sf12_physical",
+                "sf12_mental", "activity_limitations"),
+  model_type = "glm",
+  family = binomial(),
+  n_boot = 50,
+  seed = 42
+)
+
+# Summary of results
+print(fit_binary)
+```
+
+The output presents three metrics side-by-side:
+- **IOM Rank-and-Replace**: Adjusts for clinical need while keeping SES distributions intact.
+- **Residual Direct Effect (RDE)**: The regression-adjusted marginal effect holding SES and need constant.
+- **Unadjusted Difference**: The unadjusted difference in empirical sample means.
+
+### 2. Visualizing Need Distributions
+
+We can replicate the classic diagnostic plot from Figure 2 of McGuire et al. (2006) to inspect how the rank-and-replace transformation successfully matches the minority need distribution to the reference distribution:
+
+```{r plot_dist}
+plot(fit_binary, type = "distributions")
+```
+
+We can also generate a forest plot comparing the disparity estimates across methods with their 95% bootstrap confidence intervals:
+
+```{r plot_forest}
+plot(fit_binary, type = "disparity")
+```
+
+---
+
+### 3. Estimating Disparities in Expenditures (Two-Part Models)
+
+Healthcare expenditures typically exhibit large masses of zeros (people with no care) alongside continuous, right-skewed positive costs. To handle this, `iomdisparity` provides native support for two-part models:
+
+- **Part 1**: Logistic/probit model for probability of positive expenditures ($\Pr(Y > 0)$).
+- **Part 2**: Log-link Gamma GLM for conditional expenditure ($E[Y \mid Y > 0]$).
+
+```{r tpm_example}
+fit_exp <- iom_disparity(
+  formula = mental_health_expenditure ~ age + female + chronic_conditions +
+    sf12_physical + sf12_mental + activity_limitations +
+    income_poverty_ratio + insurance + education + race,
+  data = meps_synthetic,
+  race_col = "race",
+  ref_race = "White",
+  comp_race = "Hispanic",
+  need_vars = c("age", "female", "chronic_conditions", "sf12_physical",
+                "sf12_mental", "activity_limitations"),
+  model_type = "two_part",
+  family = binomial(link = "logit"),
+  part2_family = Gamma(link = "log"),
+  n_boot = 50,
+  seed = 42
+)
+
+summary(fit_exp)
+```
+
+---
+
+## References
+
+1. Cook, B. L., McGuire, T. G., & Zaslavsky, A. M. (2012). Measuring racial/ethnic disparities in health care: methods and practical issues. *Health Services Research*, 47(3 Pt 2), 1232–1254. <https://doi.org/10.1111/j.1475-6773.2012.01387.x>
+2. Cook, B. L., McGuire, T. G., Lock, K., & Zaslavsky, A. M. (2010). Comparing methods of racial and ethnic disparities measurement across different settings of mental health care. *Health Services Research*, 45(3), 825–847. <https://doi.org/10.1111/j.1475-6773.2010.01100.x>
+3. McGuire, T. G., Alegria, M., Cook, B. L., Wells, K. B., & Zaslavsky, A. M. (2006). Implementing the Institute of Medicine definition of disparities: an application to mental health care. *Health Services Research*, 41(5), 1979–2005. <https://doi.org/10.1111/j.1475-6773.2006.00583.x>
+4. Institute of Medicine (IOM). (2002). *Unequal Treatment: Confronting Racial and Ethnic Disparities in Health Care*. Washington, DC: National Academy Press.

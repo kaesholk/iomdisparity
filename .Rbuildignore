@@ -1,0 +1,8 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^papers$
+^tools$
+^iomdisparity\.Rcheck$
+^\.git.*$
+^\.system_generated$
+^README\.Rmd$

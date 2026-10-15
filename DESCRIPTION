@@ -1,0 +1,32 @@
+Package: iomdisparity
+Type: Package
+Title: Implementing the Institute of Medicine Healthcare Disparity Definition
+Version: 0.1.0
+Authors@R: c(
+    person("Kaes", "Holkeboer", email = "kaesholk@gmail.com", role = c("aut", "cre"))
+  )
+Description: Implements the Institute of Medicine (IOM) definition of racial and
+    ethnic healthcare disparities using the rank-and-replace algorithm developed
+    by McGuire et al. (2006) <doi:10.1111/j.1475-6773.2006.00583.x>, Cook et al.
+    (2010) <doi:10.1111/j.1475-6773.2010.01100.x>, and Cook, McGuire, & Zaslavsky
+    (2012) <doi:10.1111/j.1475-6773.2012.01387.x>. Provides tools for calculating
+    need-based health indices, quantile mapping, single-part GLMs, two-part
+    expenditure models, stratified bootstrap confidence intervals, multi-method
+    reporting (unadjusted, residual direct effect, and IOM rank-and-replace),
+    and counterfactual distribution visualizations.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 3.5.0)
+Imports:
+    stats,
+    graphics
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown,
+    ggplot2,
+    boot
+VignetteBuilder: knitr
